@@ -36,6 +36,7 @@ public class ProductStreamsService {
 
     private static final String PRODUCT_CLICK_TOP30_STORE = "product-click-top30-store";
     private static final String PRODUCT_CLICK_COUNT_STORE = "product-click-count-store";
+    private static final int MAX_TOP_N = 30;//서비스 계층에서 MAX_TOP_N은 “store가 보장하는 최대 결과 개수(상한)”로 30
 
     private KafkaStreams getKafkaStreams() {
         try {
@@ -53,6 +54,10 @@ public class ProductStreamsService {
     }
 
     public List<ProductClickStatResponse> getTop30ProductClicks(Long windowStartTime) {
+        return getTopNProductClicks(MAX_TOP_N, windowStartTime);
+    }
+
+    public List<ProductClickStatResponse> getTopNProductClicks(int limit, Long windowStartTime) {
         try {
             KafkaStreams kafkaStreams = getKafkaStreams();
             if (kafkaStreams == null) return List.of();
@@ -63,10 +68,13 @@ public class ProductStreamsService {
                             QueryableStoreTypes.keyValueStore()
                     ));
 
+            int effectiveLimit = Math.max(1, Math.min(limit, MAX_TOP_N));
             String key = windowStartTime != null ? String.valueOf(windowStartTime) : null;
             if (key != null) {
                 List<ProductClickStatResponse> result = store.get(key);
-                return result != null ? result : List.of();
+                if (result == null || result.isEmpty()) return List.of();
+                if (result.size() <= effectiveLimit) return result;
+                return result.subList(0, effectiveLimit);
             }
 
             List<ProductClickStatResponse> allResults = new ArrayList<>();
@@ -79,7 +87,7 @@ public class ProductStreamsService {
 
             return allResults.stream()
                     .sorted(Comparator.comparing(ProductClickStatResponse::clickCount).reversed())
-                    .limit(30)
+                    .limit(effectiveLimit)
                     .collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("상품 클릭 통계 조회 실패", e);

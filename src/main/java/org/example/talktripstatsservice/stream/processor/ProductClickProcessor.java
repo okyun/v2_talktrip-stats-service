@@ -40,7 +40,7 @@ public class ProductClickProcessor {
     @Value("${kafka.topics.product-click-stats:product-click-stats}")
     private String productClickStatsTopic;
 
-    private static final Duration WINDOW_SIZE = Duration.ofMinutes(15);
+    private static final Duration WINDOW_SIZE = Duration.ofMinutes(3);
     private static final int TOP_N = 30;
 
     private final JsonSerde<ProductClickStatResponse> productClickStatSerde = createJsonSerde(ProductClickStatResponse.class);

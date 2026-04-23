@@ -1,6 +1,8 @@
 package org.example.talktripstatsservice.stream.processor;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.Consumed;
@@ -19,6 +21,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.support.serializer.JsonSerde;
+import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -46,9 +50,12 @@ public class OrderPurchaseProcessor {
 
     private final JsonSerde<OrderPurchaseStatResponse> orderPurchaseStatSerde = createJsonSerde(OrderPurchaseStatResponse.class);
 
-    @SuppressWarnings("unchecked")
-    private final JsonSerde<List<OrderPurchaseStatResponse>> orderPurchaseStatListSerde =
-            (JsonSerde<List<OrderPurchaseStatResponse>>) (JsonSerde<?>) createJsonSerde(List.class);
+    /**
+     * List 타입은 제네릭 정보 소거로 인해 복원 시 LinkedHashMap으로 풀릴 수 있어,
+     * Streams state store/changelog 복원까지 안전한 타입 고정 Serde를 사용합니다.
+     */
+    private final Serde<List<OrderPurchaseStatResponse>> orderPurchaseStatListSerde =
+            createTypedSerde(new TypeReference<>() {});
 
     private <T> JsonSerde<T> createJsonSerde(Class<T> clazz) {
         JsonSerde<T> serde = new JsonSerde<>(clazz);
@@ -58,6 +65,13 @@ public class OrderPurchaseProcessor {
         props.put("spring.json.value.default.type", clazz.getName());
         serde.configure(props, false);
         return serde;
+    }
+
+    private <T> Serde<T> createTypedSerde(TypeReference<T> typeRef) {
+        JsonSerializer<T> serializer = new JsonSerializer<>();
+        JsonDeserializer<T> deserializer = new JsonDeserializer<>(typeRef);
+        deserializer.addTrustedPackages("*");
+        return Serdes.serdeFrom(serializer, deserializer);
     }
 
     public void process(StreamsBuilder streamsBuilder) {

@@ -53,7 +53,13 @@ public class OrderStreamsService {
     }
 
     public List<OrderPurchaseStatResponse> getTop30OrderPurchases(Long windowStartTime) {
+        return getTopNOrderPurchases(30, windowStartTime);
+    }
+
+    public List<OrderPurchaseStatResponse> getTopNOrderPurchases(int limit, Long windowStartTime) {
         try {
+            int effectiveLimit = Math.max(1, limit);
+
             KafkaStreams kafkaStreams = getKafkaStreams();
             if (kafkaStreams == null) return List.of();
 
@@ -66,7 +72,11 @@ public class OrderStreamsService {
             String key = windowStartTime != null ? String.valueOf(windowStartTime) : null;
             if (key != null) {
                 List<OrderPurchaseStatResponse> result = store.get(key);
-                return result != null ? result : List.of();
+                if (result == null) return List.of();
+                return result.stream()
+                        .sorted(Comparator.comparing(OrderPurchaseStatResponse::purchaseCount).reversed())
+                        .limit(effectiveLimit)
+                        .collect(Collectors.toList());
             }
 
             List<OrderPurchaseStatResponse> allResults = new ArrayList<>();
@@ -79,7 +89,7 @@ public class OrderStreamsService {
 
             return allResults.stream()
                     .sorted(Comparator.comparing(OrderPurchaseStatResponse::purchaseCount).reversed())
-                    .limit(30)
+                    .limit(effectiveLimit)
                     .collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("주문 구매 통계 조회 실패", e);

@@ -45,7 +45,8 @@ public class OrderPurchaseProcessor {
     @Value("${kafka.topics.order-purchase-stats:order-purchase-stats}")
     private String orderPurchaseStatsTopic;
 
-    private static final Duration WINDOW_SIZE = Duration.ofMinutes(15);
+    // Admin 통계 UI 요구: 00:00부터 30분 단위 tumbling window로 집계
+    private static final Duration WINDOW_SIZE = Duration.ofMinutes(30);
     private static final int TOP_N = 30;
 
     private final JsonSerde<OrderPurchaseStatResponse> orderPurchaseStatSerde = createJsonSerde(OrderPurchaseStatResponse.class);

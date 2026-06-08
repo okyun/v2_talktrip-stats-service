@@ -1,0 +1,8 @@
+# 통합 테스트 컨텍스트: DB 없음(Kafka/Redis는 로컬 기본값·또는 CI 환경 변수)
+spring:
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}

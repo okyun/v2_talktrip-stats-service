@@ -91,6 +91,28 @@ public class OrderPurchaseProcessor {
         logger.info("OrderPurchaseProcessor Topology 구성 완료");
     }
 
+    /**
+     * 주문 생성 스트림을 상품 단위로 펼친 뒤 30분 텀블링 윈도우로 집계하고, 윈도우별 구매 수 TOP {@value #TOP_N}을 출력 토픽으로 보냅니다.
+     *
+     * <p>윈도우 단계:
+     * <ol>
+     *   <li>{@code flatMap} — 주문 항목을 productId 키로 펼치고, 수량만큼 레코드를 복제해 구매 건수로 셉니다.</li>
+     *   <li>{@code groupByKey} — 집계 키를 {@code productId}로 고정합니다.</li>
+     *   <li>{@code windowedBy(TimeWindows)} — 이벤트 타임스탬프(기본: 레코드 timestamp)를 기준으로
+     *       겹치지 않는 고정 길이 구간(텀블링)에 레코드를 배치합니다. 길이는 {@link #WINDOW_SIZE}(30분)이며,
+     *       Admin 통계 UI의 30분 슬롯 요구에 맞춥니다.</li>
+     *   <li>{@code count} — (윈도우, productId)별 구매 건수를 누적합니다. 상태는
+     *       {@code order-purchase-count-store}에 저장됩니다.</li>
+     * </ol>
+     *
+     * <p>{@link TimeWindows#ofSizeWithNoGrace(Duration)} 은 grace period가 없는 텀블링 윈도우입니다.
+     * 윈도우가 닫힌 뒤 늦게 도착한 레코드는 이 집계에 포함되지 않습니다(지연 허용 없음).
+     * 경계 시각은 Kafka Streams 기본 정렬(UTC epoch 기준 고정 간격)을 따릅니다.
+     *
+     * <p>이후 {@code toStream}에서 {@link Windowed} 키의 {@code window().start()}/{@code end()}를
+     * {@link OrderPurchaseStatResponse}에 실어, 동일 윈도우 시작 시각({@code windowStartMs}) 단위로 다시 묶어
+     * TOP N만 유지한 뒤 {@code order-purchase-stats}로 publish 합니다.
+     */
     private void orderPurchaseStatsStream(KStream<String, OrderCreatedEventDTO> orderStream) {
         KStream<String, String> productIdStream = orderStream
                 .flatMap((key, orderEvent) -> {
@@ -115,6 +137,7 @@ public class OrderPurchaseProcessor {
                     return result;
                 });
 
+        // 30분 텀블링: 구간마다 productId별 구매 건수를 독립 집계 (grace 없음 → 지연 레코드 제외)
         TimeWindows tumblingWindow = TimeWindows.ofSizeWithNoGrace(WINDOW_SIZE);
 
         KTable<Windowed<String>, Long> purchaseCounts = productIdStream

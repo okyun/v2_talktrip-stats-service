@@ -96,12 +96,34 @@ public class ProductClickProcessor {
         logger.info("ProductClickProcessor Topology 구성 완료");
     }
 
+    /**
+     * 상품 클릭 스트림을 30분 텀블링 윈도우로 집계한 뒤, 윈도우별 클릭 수 TOP {@value #TOP_N}을 출력 토픽으로 보냅니다.
+     *
+     * <p>윈도우 단계:
+     * <ol>
+     *   <li>{@code groupByKey} — 집계 키를 {@code productId}로 고정합니다.</li>
+     *   <li>{@code windowedBy(TimeWindows)} — 이벤트 타임스탬프(기본: 레코드 timestamp)를 기준으로
+     *       겹치지 않는 고정 길이 구간(텀블링)에 레코드를 배치합니다. 길이는 {@link #WINDOW_SIZE}(30분)이며,
+     *       Admin 통계 UI의 30분 슬롯 요구에 맞춥니다.</li>
+     *   <li>{@code count} — (윈도우, productId)별 클릭 건수를 누적합니다. 상태는
+     *       {@code product-click-count-store}에 저장됩니다.</li>
+     * </ol>
+     *
+     * <p>{@link TimeWindows#ofSizeWithNoGrace(Duration)} 은 grace period가 없는 텀블링 윈도우입니다.
+     * 윈도우가 닫힌 뒤 늦게 도착한 레코드는 이 집계에 포함되지 않습니다(지연 허용 없음).
+     * 경계 시각은 Kafka Streams 기본 정렬(UTC epoch 기준 고정 간격)을 따릅니다.
+     *
+     * <p>이후 {@code toStream}에서 {@link Windowed} 키의 {@code window().start()}/{@code end()}를
+     * {@link ProductClickStatResponse}에 실어, 동일 윈도우 시작 시각({@code windowStartMs}) 단위로 다시 묶어
+     * TOP N만 유지한 뒤 {@code product-click-stats}로 publish 합니다.
+     */
     private void productClickStatsStream(KStream<String, ProductClickEventDTO> clickStream) {
         KStream<String, String> productIdStream = clickStream
                 .filter((key, value) -> value != null && value.productId() != null)
                 .selectKey((key, event) -> String.valueOf(event.productId()))
                 .mapValues(event -> "1");
 
+        // 30분 텀블링: 구간마다 productId별 count를 독립 집계 (grace 없음 → 지연 레코드 제외)
         TimeWindows tumblingWindow = TimeWindows.ofSizeWithNoGrace(WINDOW_SIZE);
 
         KTable<Windowed<String>, Long> clickCounts = productIdStream
